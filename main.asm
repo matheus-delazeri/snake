@@ -7,16 +7,20 @@
 #	Display Height in Pixels: 512  			#
 #---------------------------------------------------------------#
 
-.eqv INITIAL_X 10
-.eqv INITIAL_Y 10
-.eqv INITIAL_SIZE 5
+
+# Direction Flags (encoded in color value)
+# 00 = Right, 01 = Down, 02 = Left, 03 = Up
+.eqv SNAKE_RIGHT 0x0000FF00
+.eqv SNAKE_DOWN  0x0100FF00
+.eqv SNAKE_LEFT  0x0200FF00
+.eqv SNAKE_UP    0x0300FF00
+
+.eqv INITIAL_TAIL 0x10010000
+.eqv INITIAL_HEAD 0x10010004
+.eqv BG_COLOR BLACK
+.eqv SNAKE_COLOR WHITE
 .eqv MAX_SIZE 4096  #  Total units: (512/8) * (512/8) = 64 x 64 = 4096 pixels
 
-
-.data
-snake_size: .word 5 # Address for snake size
-snake_tail: .word 0 # Address for snake tail
-snake_head: .word 0 # Address for snake head
 
 .text
 .globl main
@@ -37,219 +41,174 @@ finit:
 
 # Main function
 main:
-    addiu   $sp, $sp, -16       
-    sw      $ra, 12($sp)
-    sw      $s0, 8($sp)
-    sw      $s1, 4($sp)
-    sw      $s2, 0($sp)  
+    addiu   $sp, $sp, -4     
+    sw      $ra, 0($sp) 
 
-    # Load snake parameters into $a registers for paint_snake
-    lw      $a0, snake_tail    # Load address of snake_tail into $a0
-    lw      $a1, snake_head    # Load address of snake_head into $a1
-    li      $a2, INITIAL_SIZE  # Load the initial size of the snake
+    jal init_snake
 
-    jal paint_snake
-
+        jal move_down
+                jal move_down
+       
+                        
+       
+               
     # Restore saved registers and return
-    lw      $s2, 0($sp)
-    lw      $s1, 4($sp)
-    lw      $s0, 8($sp)
-    lw      $ra, 12($sp)      
-    addiu   $sp, $sp, 16      
+    lw      $ra, 0($sp)      
+    addiu   $sp, $sp, 4      
     jr      $ra 
 
 # Paint the starting snake on the screen
-# Parameters:
-#   $a0 - Address of snake_tail
-#   $a1 - Address of snake_head
-#   $a2 - Size of the snake
-paint_snake:
-    addiu   $sp, $sp, -20
-    sw      $ra, 16($sp)       # Save $ra
-    sw      $s0, 12($sp)       # Save $s0 (tail X)
-    sw      $s1, 8($sp)        # Save $s1 (tail Y)
-    sw      $s2, 4($sp)        # Save $s2 (size)
+init_snake:
+    addiu   $sp, $sp, -4
+    sw      $ra, 0($sp)       # Save $r
 
-    li      $s0, INITIAL_X     # Tail X in $s0
-    li      $s1, INITIAL_Y     # Tail Y in $s1
-    add     $s2, $s0, $a2      # Head X = Tail X + size
-    addiu   $s2, $s2, -1       # Adjust Head X
+    # The snake head and tail will ALWAYS be in $s6 and $s7
+    li      $s6, INITIAL_TAIL     # Tail X in $s0
+    li      $s7, INITIAL_HEAD     # Tail Y in $s1
    
-    # Save coordinates for drawing
-    sw      $s0, 0($sp)        # Tail X
-    sw      $s1, 4($sp)        # Tail Y
-    sw      $s2, 8($sp)        # Head X
-
-    # Move values for extremity update
-    move    $a0, $s0           # Tail X
-    move    $a1, $s1           # Tail Y
-    move    $a2, $s2           # Head X
-    move    $a3, $s1           # Head Y
-
-    jal     update_extremity_pos
-
-    # Move values for drawing
-    lw      $t0, 0($sp)        # Tail X
-    lw      $t1, 4($sp)        # Tail Y
-    lw      $t3, 8($sp)        # Head X
-    move    $a0, $t0           # Tail X
-    move    $a1, $t1           # Tail Y
-    move    $a2, $t3           # Head X
-    move    $a3, $t1           # Head Y
-    jal     draw_line
+    # Initialize snake segments (all moving right initially)
+    li      $t0, SNAKE_RIGHT    # Direction flag (right)
+    sw      $t0, 0($s6)        # Store direction in the color of tail
+    sw      $t0, 0($s7)        # Store direction in the color of head
 
     # Epilogue
-    lw      $s2, 4($sp)
-    lw      $s1, 8($sp)
-    lw      $s0, 12($sp)
-    lw      $ra, 16($sp)
-    addiu   $sp, $sp, 20    
+    lw      $ra, 0($sp)
+    addiu   $sp, $sp, 4    
     jr      $ra
-
-# Update the tail and head position of the snake
-# $a0: Tail X  
-# $a1: Tail Y      
-# $a2: Head X       
-# $a3: Head Y 
-update_extremity_pos:
-    addiu   $sp, $sp, -8
-    sw      $ra, 4($sp)
-    sw      $s0, 0($sp)
-
-    # Get address of tail
-    jal coordinates_to_address
-    la      $t0, snake_tail
-    sw      $v0, 0($t0)		
-
-    # Get address of head
-    move    $a0, $a2
-    move    $a1, $a3
-    jal     coordinates_to_address
-
-    la      $t1, snake_head
-    sw      $v0, 0($t1)		
-    # Restore saved registers and return
-    lw      $s0, 0($sp)
-    lw      $ra, 4($sp)      
-    addiu   $sp, $sp, 8    
-    jr      $ra
-
-# Increment snake length by adding a point
-# This will update the snake_size in memory
-add_point:
-    la      $t0, snake_size    # Load the address of snake_size
-    lw      $t1, 0($t0)        # Load the current snake size
-    addi    $t1, $t1, 1        # Increment the size
-    sw      $t1, 0($t0)        # Store the updated size back in memory
-
-    jr $ra
     
 move_up:
-    # Save state
-    addiu   $sp, $sp, -8
-    sw      $ra, 4($sp)
-    sw      $s0, 0($sp)
+    addiu   $sp, $sp, -4
+    sw      $ra, 0($sp)
+    
+    # Move right (increase X)
+    addiu   $s7, $s7, -256 # Size of row, so we go 1 row down
 
-    # Load current head Y coordinate
-    lw      $s0, snake_head     # Load head address
-
-    # Move up (decrease the address)
-    addiu   $t0, $s0, -0x00000100
-
-    # Check for wraparound at the top
-    bge     $t0, $zero, move_up_cont   # If Y >= 0, continue
-    # Implement colission = lost
+    # Check for wraparound on the right
+    li      $t1, 64
+    blt     $t0, $t1, move_up_cont   # If X < 64, continue
+    # Implement collision = lost
 
 move_up_cont:
-    # Store the new head Y position
-    li	    $t1, WHITE
-    sw      $t1, 0($t0)
+    # Store the new head X position
+    li      $t2, SNAKE_UP
+    sw      $t2, 0($s7)  # Store direction flag for head segment
+
+    jal	    erase_tail		
 
     # Restore state and return
-    lw      $s0, 0($sp)
-    lw      $ra, 4($sp)
-    addiu   $sp, $sp, 8
+    lw      $ra, 0($sp)
+    addiu   $sp, $sp, 4
     jr      $ra
 
 # Move the snake down
 move_down:
-    addiu   $sp, $sp, -8
-    sw      $ra, 4($sp)
-    sw      $s0, 0($sp)
+    addiu   $sp, $sp, -4
+    sw      $ra, 0($sp)
+    
+    # Move right (increase X)
+    addiu   $s7, $s7, 0x00000100 # Size of row (256), so we go 1 row down
 
-    # Load current head Y coordinate
-    lw      $s0, snake_head
-
-    # Move down (increase Y)
-    addiu   $t0, $s0, 0x00000100
-
-    # Check for wraparound at the bottom
+    # Check for wraparound on the right
     li      $t1, 64
-    blt     $t0, $t1, move_down_cont   # If Y < 64, continue
-    # Implement colission = lost
+    blt     $t0, $t1, move_down_cont   # If X < 64, continue
+    # Implement collision = lost
 
 move_down_cont:
-    # Store the new head Y position
-    li	    $t1, WHITE
-    sw      $t1, 0($t0)
+    # Store the new head X position
+    li      $t2, SNAKE_DOWN
+    sw      $t2, 0($s7)  # Store direction flag for head segment
+
+    jal	    erase_tail		
 
     # Restore state and return
-    la      $s0, 0($sp)
-    lw      $ra, 4($sp)
-    addiu   $sp, $sp, 8
+    lw      $ra, 0($sp)
+    addiu   $sp, $sp, 4
     jr      $ra
 
 # Move the snake left
 move_left:
-    addiu   $sp, $sp, -8
-    sw      $ra, 4($sp)
-    sw      $s0, 0($sp)
+    addiu   $sp, $sp, -4
+    sw      $ra, 0($sp)
+    
+    # Move right (increase X)
+    addiu   $s7, $s7, -4
 
-    # Load current head X coordinate
-    lw      $s0, snake_head
-
-    # Move left (decrease X)
-    addiu   $t0, $s0, -4
-
-    # Check for wraparound on the left
-    bge     $t0, $zero, move_left_cont   # If X >= 0, continue
-    # Implement colission = lost
+    # Check for wraparound on the right
+    li      $t1, 64
+    blt     $t0, $t1, move_left_cont   # If X < 64, continue
 
 move_left_cont:
     # Store the new head X position
-    li	    $t1, WHITE
-    sw      $t1, 0($t0)
+    li      $t2, SNAKE_LEFT
+    sw      $t2, 0($s7)  # Store direction flag for head segment
+
+    jal	    erase_tail		
 
     # Restore state and return
-    lw      $s0, 0($sp)
-    lw      $ra, 4($sp)
-    addiu   $sp, $sp, 8
+    lw      $ra, 0($sp)
+    addiu   $sp, $sp, 4
     jr      $ra
 
-# Move the snake right
 move_right:
-    addiu   $sp, $sp, -8
-    sw      $ra, 4($sp)
-    sw      $s0, 0($sp)
-
-    # Load current head X coordinate
-    lw      $s0, snake_head
-
+    addiu   $sp, $sp, -4
+    sw      $ra, 0($sp)
+    
     # Move right (increase X)
-    addiu   $t0, $s0, 4
+    addiu   $s7, $s7, 4
 
     # Check for wraparound on the right
     li      $t1, 64
     blt     $t0, $t1, move_right_cont   # If X < 64, continue
-    # Implement colission = lost
+    # Implement collision = lost
 
 move_right_cont:
     # Store the new head X position
-    li	    $t1, WHITE
-    sw      $t1, 0($t0)
+    li      $t2, SNAKE_RIGHT
+    sw      $t2, 0($s7)  # Store direction flag for head segment
+
+    jal	    erase_tail		
 
     # Restore state and return
-    lw      $s0, 0($sp)
-    lw      $ra, 4($sp)
-    addiu   $sp, $sp, 8
+    lw      $ra, 0($sp)
+    addiu   $sp, $sp, 4
+    jr      $ra
+
+erase_tail:	
+    lw      $t0, 0($s6)      # Tail direction
+    li      $t1, BG_COLOR    # Load the background color to erase
+
+    # Clear the tail position
+    sw      $t1, 0($s6)
+
+    # Check the tail direction flag and move accordingly
+    li      $t3, SNAKE_RIGHT
+    beq     $t0, $t3, erase_right
+
+    li      $t3, SNAKE_DOWN
+    beq     $t0, $t3, erase_down
+
+    li      $t3, SNAKE_LEFT
+    beq     $t0, $t3, erase_left
+
+    li      $t3, SNAKE_UP
+    beq     $t0, $t3, erase_up
+
+    jr      $ra
+
+erase_right:
+    addiu   $s6, $s6, 4  # Move right (x++)
+    jr      $ra
+
+erase_down:
+    addiu   $s6, $s6, 0x00000100  # Move down (y++)
+    li $v0, 17
+    syscall
+    jr      $ra
+
+erase_left:
+    addiu   $s6, $s6, -4  # Move left (x--)
+    jr      $ra
+
+erase_up:
+    addiu   $s6, $s6, -0x00000100  # Move up (y--)
     jr      $ra
