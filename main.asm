@@ -132,7 +132,14 @@ movement_keyboard_check:
     beq $t7, 0x00000073, move_down  # s key is pressed
     beq $t7, 0x00000061, move_left  # a key is pressed
     beq $t7, 0x00000064, move_right # d key is pressed
+    
+    beq $t7, 0x00000057, move_up  # W (caps suuport) key is pressed
+    beq $t7, 0x00000053, move_down  # S (caps suuport) key is pressed
+    beq $t7, 0x00000041, move_left  # A (caps suuport) key is pressed
+    beq $t7, 0x00000044, move_right  # D (caps suuport) key is pressed
+    
     beq $t7, 0x00000071, finit    # q key is pressed
+    
 
     # If no key pressed, continue in the same direction
     lw $t0, 0($s7)
