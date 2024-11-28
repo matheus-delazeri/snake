@@ -65,124 +65,149 @@ init_snake:
     sw $t0, 0($s6) # Store direction in the color of tail
     sw $t0, 0($s7) # Store direction in the color of head
     jal generate_apple
+    
+    # Initial movement
+    li $a0, 1  # Erase tail
     jal move_right
 
     lw $ra, 0($sp)
     addiu   $sp, $sp, 4
     jr $ra
 
-move_up:
+# Parameters:
+# $a0: new head address
+check_wall_collision:
+    move $t0, $a0 # Snake head
+    lw $t1, 0($s7) # Snake current direction
+    
+    # Check horizontal boundaries (X)
+    andi $t2, $t0, 0XFF # Isolate the last 8 bits so we can check the X variation without the Y that jumps by 2^8 (256)
+    srl $t3, $t2, 2  # Convert to screen coordinate
+    beq $t1, SNAKE_LEFT, check_left_wall
+    beq $t1, SNAKE_RIGHT, check_right_wall    
+    
+    # Check vertical boundaries (Y)  
+    sub $t2, $t0, $t2 # Subtract from the new head position the X variation, keeping only the Y changes (after the 8 bits)
+    subi $t2, $t2, DISPLAY_MEMORY_BASE # Calculate relative to the display space
+    bltz $t2, game_over # Check if is over top ( Y < 0 )
+    
+    srl $t3, $t2, 8 # Divide the address by 8 because each row has 256 values (2^8)
+   
+    #srl $t3, $t2, 2  # Convert to screen coordinate
+    bge $t3, SCREEN_HEIGHT, game_over
+    
+    j end_wall_collision
+
+check_left_wall:
+    li $t4, SCREEN_WIDTH
+    addi $t4, $t4, -1
+    bge $t3, $t4, game_over # Check if the next move would be the X end - 1 of a new line
+    j end_wall_collision
+
+check_right_wall:
+    beqz $t3, game_over # Check if the next move would be the X = 0 of a new line
+    j end_wall_collision
+    
+end_wall_collision:
+    jr $ra
+    
+# Common movement code for all directions
+common_movement:
     addiu $sp, $sp, -8
     sw    $ra, 4($sp)
     sw    $s0, 0($sp)
     
+    jal check_wall_collision
+    
     move $s0, $a0 # Erase tail?
-    # Move up (decrease Y)
-    addiu   $a0, $s7, -256
-    li      $a1, SNAKE_UP
     jal update_head
     
-    beqz $s0, move_up_cont
+    beqz $s0, movement_keyboard_check
     jal erase_tail
 
-move_up_cont:
-    jal wait_keyboard
+movement_keyboard_check:
+    jal wait_keyboard_with_timer
     lw $t7, 0xFFFF0004
+    beq $t7, 0x00000077, move_up  # w key is pressed
+    beq $t7, 0x00000073, move_down  # s key is pressed
     beq $t7, 0x00000061, move_left  # a key is pressed
     beq $t7, 0x00000064, move_right # d key is pressed
     beq $t7, 0x00000071, finit    # q key is pressed
 
-    lw $ra, 4($sp)
-    lw $s0, 0($sp)
-    addiu $sp, $sp, 8
-    jal move_up
+    # If no key pressed, continue in the same direction
+    lw $t0, 0($s7)
+    
+    beq $t0, SNAKE_RIGHT, move_right
+    beq $t0, SNAKE_LEFT, move_left
+    beq $t0, SNAKE_UP, move_up
+    beq $t0, SNAKE_DOWN, move_down
+
+# Move the snake up
+move_up:
+    lw $t0, 0($s7)
+    beq $t0, SNAKE_DOWN, move_down # If is moving down, ignore this
+    
+    addiu   $a0, $s7, -256
+    li      $a1, SNAKE_UP
+    j common_movement
 
 # Move the snake down
 move_down:
-    addiu $sp, $sp, -8
-    sw    $ra, 4($sp)
-    sw    $s0, 0($sp)
-    
-    move $s0, $a0 # Erase tail?
-    # Move down (increase Y)
+    lw $t0, 0($s7)
+    beq $t0, SNAKE_UP, move_up # If is moving up, ignore this 	
+
     addiu   $a0, $s7, 256
     li      $a1, SNAKE_DOWN
-    jal update_head
-    
-    beqz $s0, move_left_cont
-    jal erase_tail
-    
-move_down_cont:
-    jal wait_keyboard
-    lw $t7, 0xFFFF0004
-    beq $t7, 0x00000061, move_left  # a key is pressed
-    beq $t7, 0x00000064, move_right # d key is pressed
-    beq $t7, 0x00000071, finit    # q key is pressed
-
-    lw $ra, 4($sp)
-    lw $s0, 0($sp)
-    addiu $sp, $sp, 8
-    jal move_down
+    j common_movement
 
 # Move the snake left
 move_left:
-    addiu $sp, $sp, -8
-    sw    $ra, 4($sp)
-    sw    $s0, 0($sp)
+    lw $t0, 0($s7)
+    beq $t0, SNAKE_RIGHT, move_right # If is moving right, ignore this 	
     
-    move $s0, $a0 # Erase tail?
-    # Move left (increase X)
     addiu   $a0, $s7, -4
     li      $a1, SNAKE_LEFT
-    jal update_head
-    
-    beqz $s0, move_left_cont
-    jal erase_tail
+    j common_movement
 
-move_left_cont:
-    jal wait_keyboard
-    lw $t7, 0xFFFF0004
-    beq $t7, 0x00000077, move_up  # w key is pressed
-    beq $t7, 0x00000073, move_down  # s key is pressed
-    beq $t7, 0x00000071, finit    # q key is pressed
-
-    lw $ra, 4($sp)
-    lw $s0, 0($sp)
-    addiu $sp, $sp, 8
-    jal move_left
-
-# Paramters
-# $a0: erase tail? 1 = yes, 0 = no
+# Move the snake right
 move_right:
-    addiu $sp, $sp, -8
-    sw    $ra, 4($sp)
-    sw    $s0, 0($sp)
+    lw $t0, 0($s7)
+    beq $t0, SNAKE_LEFT, move_left # If is moving left, ignore this 	
     
-    move $s0, $a0 # Erase tail?
-    # Move right (increase X)
     addiu   $a0, $s7, 4
     li      $a1, SNAKE_RIGHT
-    jal update_head
+    j common_movement
+
+# Wait for keyboard input with a timer
+wait_keyboard_with_timer:
+    sub $sp, $sp, 8
+    sw $ra, 4($sp)
+    sw $a0, 0($sp)
+
+    # Wait for keyboard input or timeout
+    li $t0, 0   # Timer counter
+    li $t1, 10000 # Timeout value
     
-    beqz $s0, move_right_cont
-    jal erase_tail
+wait_keyboard_timer_loop:
+    # Check for keyboard input
+    lw $t2, 0xFFFF0000
+    and $t2, 0x00000001
+    bnez $t2, wait_keyboard_end
 
-move_right_cont:
-    jal wait_keyboard
-    lw $t7, 0xFFFF0004   # Verifying which key is pressed
-    beq $t7, 0x00000077, move_up  # w key is pressed
-    beq $t7, 0x00000073, move_down  # s key is pressed
-    beq $t7, 0x00000071, finit    # q key is pressed
+    # Increment timer
+    addiu $t0, $t0, 1
+    blt $t0, $t1, wait_keyboard_timer_loop
 
+    # Timeout occurred, use default return
+wait_keyboard_end:
+    lw $a0, 0($sp)
     lw $ra, 4($sp)
-    lw $s0, 0($sp)
-    addiu $sp, $sp, 8
-    jal move_right
-
+    add $sp, $sp, 8
+    jr $ra
+    
 # Parameters:
 # $a0: new head address
 # $a1: head direction
-
 update_head:
     addiu $sp, $sp, -16
     sw    $ra, 12($sp)
@@ -232,14 +257,14 @@ game_over:
 
 generate_apple:
 # Generate random number
-	li $a1, 1112	# Here $a1 configures the max value wich is the number of units on display (0 til 1023).
-    	li $v0, 42  	#generates the random number.
+	li $a1, 4095	# Here $a1 configures the max value wich is the number of units on display 64x64 (0 til 4095).
+    	li $v0, 42  	# generates the random number.
     	syscall
 # Verify if it's inside the playabe area
 	move $t0, $a0		
 	sll $t0, $t0, 2		# Computing new apple address
 	li $t3, DISPLAY_MEMORY_BASE
-	add $t3, $t3, $t0	#
+	add $t3, $t3, $t0	
 	lw $t0, 0($t3)		# get new add content
 	bne $t0, BG_COLOR, generate_apple # if new apple address content is not blank, try again
 # Painting apple pixel
@@ -307,7 +332,7 @@ erase_right:
     jr $ra
 
 erase_down:
-    addiu   $s6, $s6, 0x00000100 # Move down (y++)
+    addiu   $s6, $s6, 256 # Move down (y++)
     jr $ra
 
 erase_left:
@@ -315,5 +340,5 @@ erase_left:
     jr $ra
 
 erase_up:
-    addiu   $s6, $s6, -0x00000100 # Move up (y--)
+    addiu   $s6, $s6, -256 # Move up (y--)
     jr $ra
